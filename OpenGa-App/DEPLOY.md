@@ -12,8 +12,8 @@ The app is already integrated. No additional flowsheet snippet is required.
    then `python -m streamlit run app/streamlit_app.py`.
 4. Commit and push the files to the branch used by your Streamlit deployment.
    The main file path remains **`app/streamlit_app.py`**.
-5. Open Flowsheet and check Image mode. In User mode, change feed assay and
-   confirm the diagram changes with the model.
+5. Open the app, press **Run model**, then open step 2 and check the flowsheet in Image
+   mode. Change the feed assay on step 1, run again and confirm the diagram changes.
 
 No GitHub repository or cloud app was created or modified during preparation.
 
@@ -25,7 +25,12 @@ Use this structure at the repository root:
 requirements.txt
 .streamlit/config.toml
 app/streamlit_app.py
+app/views/                 # one file per page
+app/state.py
+app/ui.py
 app/charts.py
+app/lcop.py
+app/assets/                # UNSW logo and favicon
 openga_v1/                 # include stream_metadata.json
 openga_flowsheet/          # complete renderer and component
 selftest.py
@@ -52,7 +57,8 @@ Excel installation, Graphviz, image converter or extra flowsheet dependency.
 
 Merge these files with your own edits rather than replacing unrelated changes:
 
-- `app/streamlit_app.py`
+- `app/streamlit_app.py`, `app/views/`, `app/state.py`, `app/ui.py`, `app/charts.py`,
+  `app/lcop.py` and `app/assets/`
 - `openga_v1/engine.py`, `openga_v1/config.py` and `openga_v1/validation.py`
 - `openga_v1/streams.py` and `openga_v1/stream_metadata.json` (new)
 - `openga_flowsheet/` (new)

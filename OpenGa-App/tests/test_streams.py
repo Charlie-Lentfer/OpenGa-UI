@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from openga_v1.config import ModelInputs, ModelConfig
 from openga_v1.engine import run
 from openga_v1 import validation
-from openga_v1.streams import UNIT_STREAMS, build_streams, balance_rows, stream_issues, INPUT_IDS, OUTPUT_IDS
+from openga_v1.streams import build_streams, balance_rows, stream_issues, INPUT_IDS, OUTPUT_IDS
 from openga_flowsheet.flowsheet import INPUTS, OUTPUTS, overview_rows, render_svg
 
 
@@ -24,20 +24,13 @@ class LiveStreamTests(unittest.TestCase):
         scenarios = [({}, 1), ({'GaFeed': 48}, 1), ({'GaFeed': 185}, 1),
                      ({'WashRec': 90}, 1), ({'PrecRec': 85}, 1),
                      ({'NaOH_UP9': 30}, 1), ({'CapProd': 200000}, 1),
-                     ({}, 2), ({}, 3), ({'IXRec': 60, 'CoAdsAl': 2}, 4),
-                     # V3 inputs: each must close on its own and in combination
-                     ({'EWRecycle': 50}, 1), ({'EWRecycle': 90}, 1),
-                     ({'ResinMode': 2}, 1), ({'BurdenAl': 1}, 1),
-                     ({'RetainLiq': 0.4}, 1), ({'AlRemUP9': 99}, 1),
-                     ({'CakeLiqSol': 1}, 1),
-                     ({'ResinMode': 2, 'BurdenAl': 1, 'RetainLiq': 0.4,
-                       'AlRemUP9': 99, 'CakeLiqSol': 1, 'EWRecycle': 90}, 1)]
+                     ({}, 2), ({}, 3), ({'IXRec': 60, 'CoAdsAl': 2}, 4)]
         for params, resin in scenarios:
             with self.subTest(params=params, resin=resin):
                 r = run(ModelInputs(cfg=ModelConfig(resin_preset=resin)).with_overrides(params))
                 self.assertEqual(len(r.streams), 37)
                 checks = balance_rows(r.streams)
-                self.assertEqual(len(checks), 8 * len(UNIT_STREAMS))
+                self.assertEqual(len(checks), 52)
                 self.assertTrue(all(row['Status'] == 'PASS' for row in checks))
                 self.assertFalse(stream_issues(r.streams))
 
@@ -98,43 +91,10 @@ class LiveStreamTests(unittest.TestCase):
         s['S30']['components']['Water'] = -1
         self.assertTrue(stream_issues(s))
 
-    def test_electrolyte_recycle_is_modelled_and_splits_the_parent(self):
-        """V2 refused any recycle. V3 solves the UP9-UP10 loop, so the test is now
-        that the branches split the parent and that recovery actually rises."""
-        base = run(ModelInputs())
-        rec = run(ModelInputs().with_overrides({'EWRecycle': 90}))
-        self.assertGreater(rec.meb.recovery_overall, base.meb.recovery_overall)
-        self.assertAlmostEqual(base.streams['S30R']['total_kg_per_kg_Ga'], 0.0)
-        for key in ('total_kg_per_kg_Ga', 'Ga', 'Na'):
-            self.assertAlmostEqual(
-                rec.streams['S30'][key],
-                rec.streams['S30R'][key] + rec.streams['S30P'][key], places=9)
-        # the purge carries a tenth of the parent at a 90% return
-        self.assertAlmostEqual(
-            rec.streams['S30P']['total_kg_per_kg_Ga']
-            / rec.streams['S30']['total_kg_per_kg_Ga'], 0.10, places=9)
-
-    def test_solid_residue_agrees_with_the_stream_table(self):
-        """The V2 MEB carried the purification-cake gallium as an ELEMENT mass while
-        the aluminium and lime terms were compound masses, so the disposal tonnage
-        OPEX buys disagreed with the cake the stream table produces."""
+    def test_v1_does_not_silently_accept_unmodelled_recycle(self):
         r = run(ModelInputs())
-        self.assertAlmostEqual(
-            r.meb.solid_residue,
-            r.streams['S27']['total_kg_per_kg_Ga'] + r.streams['S19']['total_kg_per_kg_Ga'],
-            places=9)
-
-    def test_reagent_element_ledgers_close(self):
-        r = run(ModelInputs().with_overrides({'CakeLiqSol': 1, 'AlRemUP9': 99}))
-        rows = [x for x in balance_rows(r.streams) if x['Quantity'] in ('Na', 'S', 'Cl', 'Ca')]
-        self.assertTrue(rows)
-        self.assertTrue(all(x['Status'] == 'PASS' for x in rows))
-
-    def test_stream_temperatures_and_tier1_heat_are_present(self):
-        r = run(ModelInputs())
-        self.assertAlmostEqual(r.streams['S1']['T_degC'], r.params['T_HOST'])
-        self.assertAlmostEqual(r.streams['S10']['H_kWh_th'], 0.0)   # enters at T_AMB
-        self.assertGreater(r.streams['S1']['H_kWh_th'], 0.0)
+        with self.assertRaisesRegex(ValueError, 'recycle'):
+            build_streams({**r.params, 'EWRecycle': 50}, r.meb)
 
     def test_scenario_is_not_compared_to_unchanged_workbook_baseline(self):
         for mi in [ModelInputs().with_overrides({'GaFeed': 100}),

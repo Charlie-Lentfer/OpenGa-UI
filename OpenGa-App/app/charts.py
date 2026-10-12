@@ -44,18 +44,29 @@ def _cfg(c: alt.Chart) -> alt.Chart:
     ).configure_legend(
         labelColor=INK2, titleColor=INK2, labelFontSize=11, titleFontSize=11,
         titleFontWeight="normal", orient="top", direction="horizontal", offset=6
-    ).configure_title(color=INK, fontSize=13, fontWeight=600, anchor="start")
+    ).configure_title(color=INK, fontSize=13, fontWeight=600, anchor="start").properties(
+        # Streamlit defaults to autosize "fit", which squeezes title, legend and
+        # axes into the stated height and flattens the plot. fit-x keeps the
+        # container width and makes the stated height the plotting area.
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
+        # Charts sit in white cards; without this the Streamlit theme paints the
+        # page background behind the plot.
+        background="#FFFFFF")
 
 
 def stacked_by_unit(df: pd.DataFrame, value_cols: list[str], title: str,
-                    y_title: str, order: list[str] | None = None) -> alt.Chart:
-    """Stacked column by unit operation. Segments carry a 2px surface gap so
-    adjacent fills never touch."""
+                    y_title: str, order: list[str] | None = None,
+                    names: dict | None = None, height: int = 260) -> alt.Chart:
+    """Stacked column by unit operation. The first entry of ``value_cols`` sits
+    on the baseline and the legend reads in the same order. Segments carry a
+    2px surface gap so adjacent fills never touch."""
     long = df.melt(id_vars="unit", value_vars=value_cols,
                    var_name="component", value_name="value")
+    long["pos"] = long["component"].map({c: i for i, c in enumerate(value_cols)})
+    long["name"] = long["unit"].map(names or {}).fillna("")
     ch = (alt.Chart(long, title=title)
           .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4,
-                    stroke="#fcfcfb", strokeWidth=2)
+                    stroke="#FFFFFF", strokeWidth=2)
           .encode(
               x=alt.X("unit:N", sort=order or list(df["unit"]), title=None,
                       axis=alt.Axis(labelAngle=0)),
@@ -63,11 +74,12 @@ def stacked_by_unit(df: pd.DataFrame, value_cols: list[str], title: str,
               color=alt.Color("component:N",
                               scale=alt.Scale(domain=value_cols, range=SERIES[:len(value_cols)]),
                               title=None),
-              order=alt.Order("component:N"),
+              order=alt.Order("pos:Q", sort="ascending"),
               tooltip=[alt.Tooltip("unit:N", title="Unit"),
+                       alt.Tooltip("name:N", title="Operation"),
                        alt.Tooltip("component:N", title="Component"),
-                       alt.Tooltip("value:Q", title=y_title, format=",.3f")])
-          .properties(height=300))
+                       alt.Tooltip("value:Q", title=y_title, format=",.2f")])
+          .properties(height=height))
     return _cfg(ch)
 
 
@@ -82,9 +94,9 @@ def tornado(rows: list[dict], base: float, title: str, x_title: str) -> alt.Char
     df = pd.DataFrame(recs)
     order = [r["label"] for r in rows]
     ch = (alt.Chart(df, title=title)
-          .mark_bar(cornerRadius=4, height=16, stroke="#fcfcfb", strokeWidth=2)
+          .mark_bar(cornerRadius=4, height=16, stroke="#FFFFFF", strokeWidth=2)
           .encode(
-              y=alt.Y("label:N", sort=order, title=None),
+              y=alt.Y("label:N", sort=order, title=None, axis=alt.Axis(labelLimit=260)),
               x=alt.X("delta:Q", title=x_title),
               color=alt.Color("side:N",
                               scale=alt.Scale(domain=["low", "high"],
@@ -96,7 +108,7 @@ def tornado(rows: list[dict], base: float, title: str, x_title: str) -> alt.Char
                        alt.Tooltip("input:Q", title="Input value", format=",.4g"),
                        alt.Tooltip("value:Q", title="Result", format=",.2f"),
                        alt.Tooltip("delta:Q", title="Change vs base", format="+,.2f")])
-          .properties(height=max(220, 26 * len(rows))))
+          .properties(height=max(200, 28 * len(rows))))
     rule = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(
         color=INK2, strokeWidth=1).encode(x="x:Q")
     return _cfg(ch + rule)
@@ -107,7 +119,7 @@ def histogram(bins: list[dict], title: str, x_title: str,
     df = pd.DataFrame(bins)
     ch = (alt.Chart(df, title=title)
           .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4,
-                    stroke="#fcfcfb", strokeWidth=2, color=SERIES[0])
+                    stroke="#FFFFFF", strokeWidth=2, color=SERIES[0])
           .encode(
               x=alt.X("mid:Q", title=x_title, bin="binned",
                       scale=alt.Scale(zero=False)),
@@ -136,7 +148,7 @@ def line(df: pd.DataFrame, x: str, y: str, title: str, x_title: str, y_title: st
          point_col: str | None = None, marker_x: float | None = None) -> alt.Chart:
     ch = (alt.Chart(df, title=title)
           .mark_line(strokeWidth=2, color=SERIES[0], point=alt.OverlayMarkDef(
-              color=SERIES[0], size=60, stroke="#fcfcfb", strokeWidth=2))
+              color=SERIES[0], size=60, stroke="#FFFFFF", strokeWidth=2))
           .encode(
               x=alt.X(f"{x}:Q", title=x_title, scale=alt.Scale(zero=False)),
               y=alt.Y(f"{y}:Q", title=y_title, scale=alt.Scale(zero=False)),
@@ -166,7 +178,7 @@ def simple_bar(df: pd.DataFrame, x: str, y: str, title: str, x_title: str,
                    y=alt.Y(f"{y}:Q", title=y_title))
         h = 300
     ch = (alt.Chart(df, title=title)
-          .mark_bar(cornerRadius=4, color=SERIES[0], stroke="#fcfcfb", strokeWidth=2)
+          .mark_bar(cornerRadius=4, color=SERIES[0], stroke="#FFFFFF", strokeWidth=2)
           .encode(tooltip=[alt.Tooltip(f"{x}:N", title=x_title),
                            alt.Tooltip(f"{y}:Q", title=y_title, format=fmt)],
                   **enc)
@@ -178,7 +190,7 @@ def grouped_bar(df: pd.DataFrame, cat: str, series: str, value: str, title: str,
                 y_title: str, domain: list[str]) -> alt.Chart:
     ch = (alt.Chart(df, title=title)
           .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4,
-                    stroke="#fcfcfb", strokeWidth=2)
+                    stroke="#FFFFFF", strokeWidth=2)
           .encode(
               x=alt.X(f"{cat}:N", title=None, axis=alt.Axis(labelAngle=0)),
               y=alt.Y(f"{value}:Q", title=y_title),
@@ -196,7 +208,7 @@ def waterfall(steps: list[dict], title: str, y_title: str) -> alt.Chart:
     """Policy contribution bridge."""
     df = pd.DataFrame(steps)
     ch = (alt.Chart(df, title=title)
-          .mark_bar(cornerRadius=4, stroke="#fcfcfb", strokeWidth=2)
+          .mark_bar(cornerRadius=4, stroke="#FFFFFF", strokeWidth=2)
           .encode(
               x=alt.X("label:N", sort=list(df["label"]), title=None,
                       axis=alt.Axis(labelAngle=-20)),
@@ -209,4 +221,97 @@ def waterfall(steps: list[dict], title: str, y_title: str) -> alt.Chart:
               tooltip=[alt.Tooltip("label:N", title="Step"),
                        alt.Tooltip("value:Q", title=y_title, format=",.2f")])
           .properties(height=320))
+    return _cfg(ch)
+
+
+# ---------------------------------------------------------------------------
+# Added for the simplified V2 interface
+# ---------------------------------------------------------------------------
+
+SERIES4 = SERIES + ["#eda100"]      # fourth validated slot (yellow)
+TOTAL = INK2                        # neutral for totals in a bridge
+
+
+def lines_by_series(df: pd.DataFrame, x: str, y: str, series: str, domain: list[str],
+                    colors: list[str], title: str, x_title: str, y_title: str,
+                    marker_x: float | None = None, marker_label: str = "base case") -> alt.Chart:
+    """One line per series, fixed colour per entity, legend on top. No end
+    labels: the series converge at high assay and the labels collide."""
+    base = alt.Chart(df)
+    enc_color = alt.Color(f"{series}:N", scale=alt.Scale(domain=domain, range=colors),
+                          title=None)
+    lines = base.mark_line(strokeWidth=2).encode(
+        x=alt.X(f"{x}:Q", title=x_title, scale=alt.Scale(zero=False)),
+        y=alt.Y(f"{y}:Q", title=y_title, scale=alt.Scale(zero=False)),
+        color=enc_color)
+    pts = base.mark_point(filled=True, size=64, stroke="#FFFFFF", strokeWidth=2,
+                          opacity=1).encode(
+        x=f"{x}:Q", y=f"{y}:Q", color=enc_color,
+        tooltip=[alt.Tooltip(f"{series}:N", title="Policy"),
+                 alt.Tooltip(f"{x}:Q", title=x_title, format=",.0f"),
+                 alt.Tooltip(f"{y}:Q", title=y_title, format=",.0f")])
+    layers = [lines, pts]
+    if marker_x is not None:
+        md = pd.DataFrame({"x": [marker_x], "label": [marker_label]})
+        layers.append(alt.Chart(md).mark_rule(color=INK2, strokeWidth=1,
+                                              strokeDash=[4, 3]).encode(x="x:Q"))
+        layers.append(alt.Chart(md).mark_text(align="left", dx=5, baseline="top",
+                                              color=INK2, fontSize=11)
+                      .encode(x="x:Q", y=alt.value(4), text="label:N"))
+    return _cfg(alt.layer(*layers, title=title).properties(height=280))
+
+
+def bridge(steps: list[dict], title: str, y_title: str) -> alt.Chart:
+    """Build-up of a total from additive parts. Each step: label, value (signed),
+    kind in {'add', 'subtract', 'total'}. Values print above each bar."""
+    rows, run = [], 0.0
+    for s in steps:
+        if s["kind"] == "total":
+            start, end = 0.0, s["value"]
+        else:
+            start, end = run, run + s["value"]
+            run = end
+        rows.append({"label": s["label"], "start": start, "end": end,
+                     "top": max(start, end), "value": s["value"], "kind": s["kind"],
+                     "text": (f"{s['value']:,.0f}" if s["kind"] != "subtract"
+                              else f"−{abs(s['value']):,.0f}")})
+    df = pd.DataFrame(rows)
+    order = list(df["label"])
+    dom = ["add", "subtract", "total"]
+    rng = [SERIES[0], SERIES[2], TOTAL]
+    bars = alt.Chart(df).mark_bar(cornerRadius=4, size=56, stroke="#FFFFFF",
+                                  strokeWidth=2).encode(
+        x=alt.X("label:N", sort=order, title=None,
+                axis=alt.Axis(labelAngle=0, labelLimit=160)),
+        y=alt.Y("start:Q", title=y_title),
+        y2="end:Q",
+        color=alt.Color("kind:N", scale=alt.Scale(domain=dom, range=rng), legend=None),
+        tooltip=[alt.Tooltip("label:N", title="Component"),
+                 alt.Tooltip("value:Q", title=y_title, format=",.2f")])
+    text = alt.Chart(df).mark_text(dy=-8, fontSize=12, color=INK).encode(
+        x=alt.X("label:N", sort=order), y="top:Q", text="text:N")
+    return _cfg(alt.layer(bars, text, title=title).properties(height=280))
+
+
+def stacked_hbar(df: pd.DataFrame, cat: str, value_cols: list[str], title: str,
+                 x_title: str, order: list[str] | None = None) -> alt.Chart:
+    """Horizontal stacked bars, one row per category."""
+    long = df.melt(id_vars=cat, value_vars=value_cols, var_name="component",
+                   value_name="value")
+    long["pos"] = long["component"].map({c: i for i, c in enumerate(value_cols)})
+    ch = (alt.Chart(long, title=title)
+          .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, size=22,
+                    stroke="#FFFFFF", strokeWidth=2)
+          .encode(
+              y=alt.Y(f"{cat}:N", sort=order or list(df[cat]), title=None),
+              x=alt.X("value:Q", title=x_title, stack="zero"),
+              color=alt.Color("component:N",
+                              scale=alt.Scale(domain=value_cols,
+                                              range=SERIES[:len(value_cols)]),
+                              title=None),
+              order=alt.Order("pos:Q", sort="ascending"),
+              tooltip=[alt.Tooltip(f"{cat}:N", title=cat),
+                       alt.Tooltip("component:N", title="Component"),
+                       alt.Tooltip("value:Q", title=x_title, format=",.2f")])
+          .properties(height=max(120, 40 * len(df))))
     return _cfg(ch)

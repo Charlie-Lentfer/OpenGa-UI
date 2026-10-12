@@ -1,100 +1,130 @@
-# OpenGa
+# OpenGa app V2
 
-Open-source techno-economic model for primary gallium recovery from an Australian
-Bayer liquor slipstream. Mass and energy balance, equipment sizing, capital and
-operating cost, policy scenarios, carbon, and an interactive flowsheet.
+Gallium Recovery Cost and Emissions Assessment: the OpenGa model with a live
+flowsheet, in a step-by-step UNSW-styled interface that matches the copper
+value-chain tool. Use this folder as your app project.
 
-The current version is **v3.0 of the app**, which tracks the `OpenGa_v3.5_MEB.xlsx`
-workbook. It lives at the root of this repository. Earlier versions are git tags,
-not folders — see [Versions](#versions).
+Developers: Charlie Lentfer (lead developer) and Rahman Daiyan (supervisor), UNSW Sydney.
 
-## Run it
+## Run locally
 
-```bash
-pip install -r requirements.txt
-streamlit run app/streamlit_app.py
+Open a terminal in this folder:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m streamlit run app/streamlit_app.py
 ```
 
-Or without a browser, to get the headline numbers and the full check suite:
+Python 3.11+ is required by the dependencies. V2 was tested with Python 3.13 (model) and 3.11 (this interface)
+and the exact versions in `requirements.txt`. On Windows, activate the virtual
+environment with `.venv/Scripts/activate` instead.
 
-```bash
-python3 selftest.py
-python3 -m pytest tests -q
-```
+Start on **Overview**, then work through the five *Build the scenario* steps in
+the sidebar. Nothing is calculated until you press **Run model** (sidebar or the
+foot of any step). If you edit an input after a run, results fade behind a banner
+until you run again. Select the **Custom** resin preset on step 2 before editing
+ion-exchange performance; named presets intentionally override those inputs.
 
-## What it produces
+## Use V2 for your existing deployment
 
-At the shipped defaults, on a basis of one kilogram of 4N gallium:
+Replace your repository's app files with the **contents of this folder**,
+including the new `openga_flowsheet/` directory and
+`openga_v1/stream_metadata.json`. Preserve `.streamlit/config.toml`.
+The main file path remains **`app/streamlit_app.py`**.
+See [DEPLOY.md](DEPLOY.md) for the steps.
 
-| | |
+The backend is still named `openga_v1` for import compatibility; this is expected
+inside V2. The MEB, equipment, energy, cost, finance and carbon equations are
+unchanged. The flowsheet is a reporting extension, not a replacement MEB.
+
+## New code and fixes
+
+| File | Purpose |
 |---|---|
-| Overall gallium recovery | 25.81 % |
-| Liquor throughput | 71.94 t/kg Ga |
-| Electricity | 19.83 kWh/kg Ga |
-| Fixed capital | A$467.6 M |
-| Cash operating cost | A$248.02/kg |
-| Production cost | A$697.41/kg |
-| Minimum viable price p\* | A$836.68/kg |
+| `openga_v1/streams.py` | Builds 37 live stream records from V1's MEB |
+| `openga_v1/stream_metadata.json` | Descriptions and routing; no snapshot quantities |
+| `openga_v1/engine.py` | Exposes the register as `Results.streams` |
+| `openga_flowsheet/flowsheet.py` | Generates SVG and interactive HTML |
+| `openga_flowsheet/app_flowsheet_tab.py` | Image display, selectors and download |
+| `app/streamlit_app.py` | Entry point: page navigation, sidebar run status, Run and Reset |
+| `app/views/` | One file per page (overview, five steps, three results pages) |
+| `app/state.py` | Inputs, method choices, the Run snapshot and the stale check |
+| `app/ui.py` | UNSW header and footer, callouts, How-to panels, cards and chart frames |
+| `app/charts.py` | Altair charts |
+| `app/lcop.py` | Splits the LCOP into operating cost, capital recovery, company tax and support |
+| `app/assets/` | UNSW logo and favicon |
 
-**Read this before quoting any of those.** This is a **Class 5** concept-screening
-basis under AACE 18R-97, whose accuracy range is −20 % to −50 % / +30 % to +100 %.
-On p\* that is roughly **A$420 – A$1,670**. The point estimate is printed to the
-cent because the arithmetic is deterministic, not because the answer is known to
-that precision. Of 276 parameters carrying a status, 29 % are Low confidence and 20
-are placeholders — including the feed assay, which is unmeasured and is the single
-largest swing in the model.
+Custom resin inputs are now populated from V1’s existing baseline preset, so Custom mode can run and accept edits. Input edits now apply before the model runs. Repeated IX recovery controls
+have distinct keys, stay synchronised, and reset correctly. Workbook regression
+is compared only at its applicable baseline; modified scenarios are no longer
+incorrectly marked as baseline regression failures.
 
-## Two checks are meant to fail
+The integration already included in the app is:
 
-`selftest.py` exits zero with two findings reported. They are not build failures —
-each marks an assumption that was invisible until it became an input:
+```python
+from openga_v1 import engine
+from openga_flowsheet.app_flowsheet_tab import flowsheet_tab
 
-- **Resin life is carried in calendar years; the cited source reports cycles.** Three
-  years at the modelled cycle time is about 420 cycles against a cited 30. On a
-  30-cycle basis the resin make-up rises from 0.33 to about 4.6 kg/kg Ga.
-- **Aluminium is excluded from the resin capacity calculation.** Co-adsorption is
-  0.1 %, but that is 2.77 kg Al per kg Ga — more than twice the gallium loaded.
-
-Both are exposed as inputs (`ResinMode`, `ResinCycles`, `BurdenAl`). Set them and the
-model responds; leave them and it keeps telling you they are unresolved.
-
-## Layout
-
-```
-app/                 Streamlit interface
-openga_v1/           model: meb, streams, equipment, capex, opex, policy, finance,
-                     allocation, carbon, validation, analysis
-openga_flowsheet/    flowsheet renderer and geometry
-tests/               unit and app tests
-selftest.py          headline numbers plus the full check suite, no browser
+results = engine.run(model_inputs)
+flowsheet_tab(results.streams, display_mode="image")
 ```
 
-`engine.run(ModelInputs) -> Results` walks the whole model in one pass with no
-iteration. Defaults in `openga_v1/_gen_defaults.py` are generated from the workbook,
-so the code and the spreadsheet cannot drift by transcription.
+For just the image without selectors or a table:
 
-## Versions
+```python
+from openga_flowsheet import render_svg
+st.image(render_svg(results.streams, interactive=False), width=1440)
+```
 
-| Tag | What it is |
+## Checks
+
+```sh
+python selftest.py
+python -m unittest discover -s tests -v
+```
+
+The self-test includes the original 14 internal and 10 workbook checks plus
+52 stream balance checks. Integration tests cover scenario changes, stream
+conservation, live image updates, every page before and after Run, the stale
+banner, reset, resin locking, capital and policy methods, and the Monte Carlo.
+
+Read [FLOW_MODEL_NOTES.md](FLOW_MODEL_NOTES.md) for the reporting assumptions
+and [MODEL_NOTES_V1.md](MODEL_NOTES_V1.md) for the original model documentation.
+
+## Interface
+
+The app reports one cost: the **levelised cost of production (LCOP)**, the constant
+real price per kg of 4N gallium at which the plant earns its cost of capital after
+company tax. In the model this is `finance.pstar`; no model equation changed.
+
+| Page | What it shows |
 |---|---|
-| `v3.0` | Current. Aligned with `OpenGa_v3.5_MEB.xlsx`: electrolyte recycle, resin duty and capacity burdens, electrolyte admissibility screening, Na/S/Cl/Ca element ledger, stream temperatures. Fixes two defects carried since V1. |
-| `v2.0` | Interactive flowsheet and the S1–S34 stream register. |
-| `v1.0` | First Streamlit port of the v3.3 workbook. |
+| Overview | What the model does, the process in five cards, the questions it answers, scope, workflow and developers |
+| 1. Feed liquor and plant basis | Capacity and liquor chemistry; after Run, liquor flow and feed gallium |
+| 2. Gallium recovery process | Resin preset, energy model, recovery cascade, reagents, electrowinning; after Run, the flowsheet and balance tables |
+| 3. Capital and operating cost | Capital cost method, equipment, capital factors and prices; after Run, the LCOP bridge and cost detail |
+| 4. Energy and carbon | Electricity mix and emission factors; after Run, carbon intensity and the route register |
+| 5. Finance and policy support | Policy model, package for results, tax, WACC, CMPTI and grant terms; after Run, what each package is worth |
+| Results summary | LCOP and scope 1 + 2 carbon as headline numbers, LCOP by package and plant figures on one line each, three charts with reading notes, caveats, glossary and CSV download |
+| Uncertainty | Tornado on LCOP or carbon, and the Monte Carlo |
+| Methods, checks and sources | How the LCOP and carbon are calculated, allocation rules, model checks, evidence status and sources |
 
-```bash
-git checkout v2.0     # any earlier version
-git checkout main     # back to current
-```
+Every step page has a *What this page does* box and a *How to use this page* panel.
+Inputs sit in numbered expanders, two per row, each with an evidence badge (Cited,
+Assumption or Placeholder) and its source in the help tooltip.
 
-Change records: [`MODEL_NOTES_V3.md`](MODEL_NOTES_V3.md),
-[`MODEL_NOTES_V1.md`](MODEL_NOTES_V1.md),
-[`FLOW_MODEL_NOTES.md`](FLOW_MODEL_NOTES.md).
+Results are always calculated from the inputs captured when **Run model** was
+pressed (`state.run`), never from inputs typed since, so every panel matches the
+run it says it is from.
 
-## What this model does not do
+The earlier terms map onto the LCOP build-up as follows: *cash operating cost* is the
+operating cost; *capital charge* is capital recovery; *production cost* (their sum) was a
+pre-tax figure and is no longer shown; *p\** is the LCOP.
 
-It validates no input. It predicts no product purity. It carries no acid–base
-equilibrium and no reaction thermochemistry beyond a tier-1 sensible-heat ledger.
-The capital estimate applies a visible completeness factor of 6 to an equipment list
-that costs out at about one sixth of the published comparable, and that comparable is
-itself a six-tenths scaling of a zinc plant. All of this is stated on the Checks tab
-rather than hidden.
+The UNSW logo is used as in the copper value-chain tool. Confirm with UNSW
+that the logo may be used on a public deployment before publishing.
+
+The `openga_v1` backend name is retained for compatibility. The MEB, energy,
+equipment and financial equations are unchanged.
